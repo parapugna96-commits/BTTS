@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Soccer Stats</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 1000px; margin: 0 auto; background: white; padding: 20px; border-radius: 5px; }
+        h1 { font-size: 18px; margin-bottom: 15px; }
+        textarea { width: 100%; height: 150px; padding: 10px; border: 1px solid #ddd; border-radius: 3px; font-family: monospace; font-size: 12px; }
+        button { padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 3px; cursor: pointer; margin-top: 10px; }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        .status { margin-top: 10px; font-size: 12px; padding: 10px; border-radius: 3px; }
+        .status.loading { background: #e3f2fd; color: #1976d2; }
+        .status.error { background: #ffebee; color: #c62828; }
+        .status.success { background: #e8f5e9; color: #2e7d32; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 12px; }
+        th { background: #f0f0f0; padding: 8px; text-align: left; border-bottom: 1px solid #ddd; font-weight: bold; }
+        td { padding: 8px; border-bottom: 1px solid #ddd; }
+        tr:hover { background: #f9f9f9; }
+        .hint { font-size: 11px; color: #666; margin-top: 5px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Soccer Stats Extractor</h1>
+        
+        <label>Cole os jogos (formato: Time A x Time B [TAB] Liga País)</label>
+        <textarea id="input" placeholder="Arsenal x Burnley	Liga Inglaterra
+Ponte Preta x Londrina	Liga Brasil 2"></textarea>
+        <div class="hint">Exemplo: "Pisa x Napoli	Liga Itália" ou "Arsenal x Burnley	Liga Inglaterra"</div>
+        
+        <button id="btn" onclick="buscar()">Buscar Estatísticas</button>
+        <div id="status"></div>
+        
+        <div id="results"></div>
+    </div>
+
+    <script>
+        async function buscar() {
+            const input = document.getElementById('input').value.trim();
+            if (!input) {
+                mostraStatus('Nenhum jogo inserido', 'error');
+                return;
+            }
+
+            const linhas = input.split('\n').filter(l => l.trim());
+            const jogos = [];
+
+            for (let linha of linhas) {
+                const partes = linha.split(/\t|\s{2,}/);
+                const jogo = partes[0]?.trim();
+                const liga = partes[1]?.trim();
+                
+                if (!jogo || !liga) continue;
+
+                const [mandante, visitante] = jogo.split(/\s+x\s+/i);
+                if (!mandante || !visitante) continue;
+
+                jogos.push({
+                    mandante: mandante.trim(),
+                    visitante: visitante.trim(),
+                    liga: liga
+                });
+            }
+
+            if (jogos.length === 0) {
+                mostraStatus('Formato inválido. Use: Time A x Time B [TAB] Liga País', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('btn');
+            btn.disabled = true;
+            mostraStatus(`⏳ Buscando dados de ${jogos.length} jogo(s)...`, 'loading');
+
+            try {
+                const response = await fetch('/api/extract-stats', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ jogos })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Erro ao buscar dados');
+                }
+
+                exibeResultados(data.resultados);
+                mostraStatus('✓ Dados carregados com sucesso', 'success');
+            } catch (error) {
+                mostraStatus(`✗ ${error.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        function mostraStatus(msg, tipo) {
+            const el = document.getElementById('status');
+            el.textContent = msg;
+            el.className = `status ${tipo}`;
+        }
+
+        function exibeResultados(resultados) {
+            let html = '<table><thead><tr>' +
+                '<th>Jogo</th><th>Liga</th>' +
+                '<th>M Marca</th><th>M Sofre</th><th>M BTTS</th><th>M SBH</th><th>M CBH</th>' +
+                '<th>V Marca</th><th>V Sofre</th><th>V BTTS</th><th>V SBH</th><th>V CBH</th>' +
+                '<th>M 2,5</th><th>V 2,5</th>' +
+                '</tr></thead><tbody>';
+
+            for (let res of resultados) {
+                const m = res.mandante_stats || {};
+                const v = res.visitante_stats || {};
+                html += `<tr>
+                    <td>${res.mandante} x ${res.visitante}</td>
+                    <td>${res.liga}</td>
+                    <td>${m.marca || '—'}</td><td>${m.sofre || '—'}</td><td>${m.btts || '—'}</td>
+                    <td>${m.sbh || '—'}</td><td>${m.cbh || '—'}</td>
+                    <td>${v.marca || '—'}</td><td>${v.sofre || '—'}</td><td>${v.btts || '—'}</td>
+                    <td>${v.sbh || '—'}</td><td>${v.cbh || '—'}</td>
+                    <td>${m.over25 || '—'}</td><td>${v.over25 || '—'}</td>
+                </tr>`;
+            }
+
+            html += '</tbody></table>';
+            document.getElementById('results').innerHTML = html;
+        }
+    </script>
+</body>
+</html>
